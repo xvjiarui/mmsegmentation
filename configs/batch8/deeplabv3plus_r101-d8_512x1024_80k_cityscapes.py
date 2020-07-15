@@ -1,4 +1,4 @@
-_base_ = './deeplabv3plus_r50-d8_512x1024_80k_cityscapes.py'
+_base_ = '../deeplabv3plus/deeplabv3plus_r50-d8_512x1024_80k_cityscapes.py'
 norm_cfg = dict(type='MMSyncBN', requires_grad=True)
 model = dict(
     pretrained='open-mmlab://resnet101_v1c',
