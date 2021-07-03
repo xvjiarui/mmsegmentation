@@ -51,7 +51,7 @@ countstr = '\n'.join(
     [f'   - {t}: {c}' for t, c in zip(papertypes, papercounts)])
 
 modelzoo = f"""
-# 模型库统计数据
+# 模型库统计
 
 * 论文数量: {len(set(titles))}
 {countstr}
