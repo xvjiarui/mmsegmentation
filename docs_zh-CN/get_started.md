@@ -113,7 +113,7 @@ pip install -e .  # 或者 "python setup.py develop"
 4. 如果您想使用 `opencv-python-headless` 替换 `opencv-python`，您可以在安装 MMCV 前安装它。
 5. 一些依赖项是可选的。简单的运行 `pip install -e .` 将仅安装最必要的一些依赖。为了使用可选的依赖项如`cityscapessripts`，要么手动使用 `pip install -r requirements/optional.txt` 安装，要么专门从pip下安装(即 `pip install -e .[optional]`， 其中选项可设置为 `all`, `tests`, `build`, 和 `optional`).
 
-### 完成的安装脚本
+### 完整的安装脚本
 
 #### Linux
 
