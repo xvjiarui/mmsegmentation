@@ -27,7 +27,8 @@ def intersect_and_union(pred_label,
                         num_classes,
                         ignore_index,
                         label_map=dict(),
-                        reduce_zero_label=False):
+                        reduce_zero_label=False,
+                        device='cpu'):
     """Calculate intersection and Union.
 
     Args:
@@ -41,6 +42,7 @@ def intersect_and_union(pred_label,
             work only when label is str. Default: dict().
         reduce_zero_label (bool): Wether ignore zero label. The parameter will
             work only when label is str. Default: False.
+        device (str): PyTorch device for computation. Default: cpu.
 
      Returns:
          torch.Tensor: The intersection of prediction and ground truth
@@ -61,6 +63,9 @@ def intersect_and_union(pred_label,
             mmcv.imread(label, flag='unchanged', backend='pillow'))
     else:
         label = torch.from_numpy(label)
+
+    pred_label = pred_label.to(device=device)
+    label = label.to(device=device)
 
     if label_map is not None:
         for old_id, new_id in label_map.items():

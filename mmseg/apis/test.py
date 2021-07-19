@@ -4,6 +4,7 @@ import tempfile
 import mmcv
 import numpy as np
 import torch
+import torch.distributed as dist
 from mmcv.engine import collect_results_cpu, collect_results_gpu
 from mmcv.image import tensor2imgs
 from mmcv.runner import get_dist_info
@@ -186,6 +187,7 @@ def progressive_single_gpu_test(model,
     for _, data in enumerate(data_loader):
         with torch.no_grad():
             result = model(return_loss=False, **data)
+        batch_size = len(result)
 
         if show or out_dir:
             img_tensor = data['img'][0]
@@ -213,7 +215,7 @@ def progressive_single_gpu_test(model,
                     out_file=out_file,
                     opacity=opacity)
 
-        for i in range(len(result)):
+        for i in range(batch_size):
             gt_semantic_map = dataset.get_gt_seg_map(cur + i)
 
             area_intersect, area_union, area_pred_label, area_label = \
@@ -231,7 +233,7 @@ def progressive_single_gpu_test(model,
 
             prog_bar.update()
 
-            cur += len(result)
+            cur += batch_size
 
     return total_area_intersect, total_area_union, total_area_pred_label, \
         total_area_label
@@ -244,70 +246,61 @@ def progressive_multi_gpu_test(model,
                                gpu_collect=False):
 
     model.eval()
+    device = next(model.parameters()).device
     dataset = data_loader.dataset
     num_classes = len(dataset.CLASSES)
     rank, world_size = get_dist_info()
     if rank == 0:
         prog_bar = mmcv.ProgressBar(len(dataset))
 
-    total_area_intersect = torch.zeros((num_classes, ), dtype=torch.float64)
-    total_area_union = torch.zeros((num_classes, ), dtype=torch.float64)
-    total_area_pred_label = torch.zeros((num_classes, ), dtype=torch.float64)
-    total_area_label = torch.zeros((num_classes, ), dtype=torch.float64)
+    total_area_intersect = torch.zeros((num_classes, ),
+                                       dtype=torch.float64,
+                                       device=device)
+    total_area_union = torch.zeros((num_classes, ),
+                                   dtype=torch.float64,
+                                   device=device)
+    total_area_pred_label = torch.zeros((num_classes, ),
+                                        dtype=torch.float64,
+                                        device=device)
+    total_area_label = torch.zeros((num_classes, ),
+                                   dtype=torch.float64,
+                                   device=device)
 
     cur = 0
     for _, data in enumerate(data_loader):
         with torch.no_grad():
             result = model(return_loss=False, rescale=True, **data)
+        batch_size = len(result)
 
-        for i in range(len(result)):
-            gt_semantic_map = dataset.get_gt_seg_map(cur + i * world_size)
+        for i in range(batch_size):
+            gt_semantic_map = dataset.get_gt_seg_map((cur + i) * world_size +
+                                                     rank)
 
             area_intersect, area_union, area_pred_label, area_label = \
                 intersect_and_union(
                     result[i], gt_semantic_map, num_classes,
                     dataset.ignore_index, dataset.label_map,
-                    dataset.reduce_zero_label)
+                    dataset.reduce_zero_label,
+                    device=device)
 
             total_area_intersect += area_intersect
             total_area_union += area_union
             total_area_pred_label += area_pred_label
             total_area_label += area_label
 
-            if rank == 0:
-                for _ in range(len(result) * world_size):
-                    prog_bar.update()
+        cur += batch_size
+        if rank == 0:
+            for _ in range(batch_size * world_size):
+                prog_bar.update()
 
-        cur += len(result) * world_size
+    dist.all_reduce(total_area_intersect)
+    dist.all_reduce(total_area_union)
+    dist.all_reduce(total_area_pred_label)
+    dist.all_reduce(total_area_label)
+    total_area_intersect = total_area_intersect.cpu()
+    total_area_union = total_area_union.cpu()
+    total_area_pred_label = total_area_pred_label.cpu()
+    total_area_label = total_area_label.cpu()
 
-    pixel_count_matrix = [
-        total_area_intersect, total_area_union, total_area_pred_label,
+    return total_area_intersect, total_area_union, total_area_pred_label, \
         total_area_label
-    ]
-    # collect results from all ranks
-    if gpu_collect:
-        results = collect_count_results_gpu(pixel_count_matrix, 4 * world_size)
-    else:
-        results = collect_count_results_cpu(pixel_count_matrix, 4 * world_size,
-                                            tmpdir)
-    return results
-
-
-def collect_count_results_gpu(result_part, size):
-    """Collect pixel count matrix result under gpu mode.
-
-    On gpu mode, this function will encode results to gpu tensors and use gpu
-    communication for results collection.
-
-    Args:
-        result_part (list[Tensor]): four type of pixel count matrix --
-            {area_intersect, area_union, area_pred_label, area_label}, These
-            four tensor shape of (num_classes, ).
-        size (int): Size of the results, commonly equal to length of
-            the results.
-    """
-    pass
-
-
-def collect_count_results_cpu(result_part, size, tmpdir=None):
-    pass
